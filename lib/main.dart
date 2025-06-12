@@ -1,9 +1,7 @@
-// main.dart (Version adaptée avec SQLite)
+// main.dart (Version UNIQUEMENT Supabase)
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
 import 'config/supabase_config.dart';
-import 'pages/auth/login_page.dart';
 import 'geo.dart';
 import 'station_list_page.dart';
 import 'profile_page.dart';
@@ -12,219 +10,69 @@ import 'services/station_visit_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    // ✅ Initialiser la base de données SQLite AVANT Supabase
-    print('🔄 Initialisation de la base de données locale...');
-    await _initializeDatabase();
-    print('✅ Base de données locale initialisée');
+  print('🚀 Démarrage CarburApp...');
+  print('📱 Plateforme: ${kIsWeb ? "Web" : "Mobile"}');
 
-    // Initialiser Supabase
-    print('🔄 Initialisation de Supabase...');
+  // Initialisation Supabase OBLIGATOIRE
+  bool supabaseOk = false;
+  try {
+    print('🔄 Initialisation Supabase...');
     await SupabaseConfig.initialize();
-    print('✅ Supabase initialisé');
 
-    print('🎉 Application prête à démarrer');
-  } catch (e) {
-    print('❌ Erreur lors de l\'initialisation: $e');
-    // L'application peut continuer même si l'une des initialisations échoue
-  }
+    // Test du service
+    await StationVisitService.initialize();
+    supabaseOk = await StationVisitService.isDatabaseReady();
 
-  runApp(MyApp());
-}
-
-/// Fonction pour initialiser la base de données SQLite
-Future<void> _initializeDatabase() async {
-  try {
-    // Vérifier que la base de données est prête
-    final isReady = await StationVisitService.isDatabaseReady();
-    if (isReady) {
-      print('✅ Base de données SQLite prête');
-
-      // Optionnel: Vérifier les statistiques existantes
-      final stats = await StationVisitService.getUserStats();
-      print('📊 Visites existantes: ${stats['total_visits']}');
+    if (supabaseOk) {
+      print('✅ Supabase opérationnel');
     } else {
-      print('⚠️ Problème avec la base de données SQLite');
+      print('⚠️ Supabase non opérationnel');
     }
   } catch (e) {
-    print('❌ Erreur lors de l\'initialisation SQLite: $e');
-    // Ne pas bloquer l'application, juste logger l'erreur
+    print('❌ Erreur Supabase: $e');
   }
+
+  print(
+    supabaseOk
+        ? '🎉 Application prête avec Supabase'
+        : '⚠️ Application en mode dégradé - Supabase requis',
+  );
+
+  runApp(MyApp(supabaseReady: supabaseOk));
 }
 
 class MyApp extends StatelessWidget {
+  final bool supabaseReady;
+
+  const MyApp({Key? key, required this.supabaseReady}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CarburApp - Stations-service',
+      title: 'CarburApp',
       theme: ThemeData(
         primarySwatch: Colors.orange,
-        primaryColor: Color(0xFFE55A2B), // Orange principal du logo
+        primaryColor: Color(0xFFE55A2B),
         colorScheme: ColorScheme.fromSeed(
           seedColor: Color(0xFFE55A2B),
           brightness: Brightness.light,
         ),
-        visualDensity: VisualDensity.adaptivePlatformDensity,
         appBarTheme: AppBarTheme(
           backgroundColor: Color(0xFFE55A2B),
           foregroundColor: Colors.white,
         ),
-        // Configuration des polices pour éviter l'avertissement
-        fontFamily: 'Roboto',
       ),
-      // Désactiver les bannières de debug
       debugShowCheckedModeBanner: false,
-      home: AuthWrapper(), // Wrapper pour gérer l'authentification
+      home: HomePage(supabaseReady: supabaseReady),
     );
   }
 }
 
-// Wrapper pour gérer l'état d'authentification
-class AuthWrapper extends StatefulWidget {
-  @override
-  _AuthWrapperState createState() => _AuthWrapperState();
-}
-
-class _AuthWrapperState extends State<AuthWrapper> {
-  User? _user;
-  bool _isLoading = true;
-  bool _dbReady = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeApp();
-  }
-
-  /// Initialisation complète de l'application
-  Future<void> _initializeApp() async {
-    try {
-      // Vérifier d'abord la base de données locale
-      await _checkDatabaseStatus();
-
-      // Puis gérer l'authentification Supabase
-      await _getInitialSession();
-      _listenToAuthChanges();
-    } catch (e) {
-      print('❌ Erreur lors de l\'initialisation de l\'app: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _checkDatabaseStatus() async {
-    try {
-      _dbReady = await StationVisitService.isDatabaseReady();
-      print(_dbReady ? '✅ DB locale OK' : '⚠️ DB locale KO');
-    } catch (e) {
-      print('❌ Erreur vérification DB: $e');
-      _dbReady = false;
-    }
-  }
-
-  Future<void> _getInitialSession() async {
-    try {
-      final session = supabase.auth.currentSession;
-      if (mounted) {
-        setState(() {
-          _user = session?.user;
-        });
-      }
-    } catch (e) {
-      print('❌ Erreur session Supabase: $e');
-      // Continuer sans Supabase si erreur
-    }
-  }
-
-  void _listenToAuthChanges() {
-    try {
-      supabase.auth.onAuthStateChange.listen((data) {
-        final AuthChangeEvent event = data.event;
-        final Session? session = data.session;
-
-        if (mounted) {
-          setState(() {
-            _user = session?.user;
-          });
-        }
-      });
-    } catch (e) {
-      print('❌ Erreur écoute auth: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFFFFF5F0), Colors.white, Color(0xFFFFF5F0)],
-            ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFFE55A2B), Color(0xFFFF6B35)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(40),
-                  ),
-                  child: Icon(
-                    Icons.local_gas_station,
-                    size: 40,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(height: 24),
-                CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE55A2B)),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Initialisation...',
-                  style: TextStyle(color: Color(0xFFD2481A), fontSize: 16),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  _dbReady
-                      ? '✅ Base de données prête'
-                      : '🔄 Préparation des données...',
-                  style: TextStyle(color: Color(0xFFE55A2B), fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Si l'utilisateur est connecté, montrer la page d'accueil
-    if (_user != null) {
-      return HomePage();
-    }
-
-    // Sinon, montrer la page d'accueil (pas de connexion obligatoire)
-    return HomePage();
-  }
-}
-
-// Page d'accueil avec logo
 class HomePage extends StatelessWidget {
+  final bool supabaseReady;
+
+  const HomePage({Key? key, required this.supabaseReady}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -233,11 +81,7 @@ class HomePage extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFFF5F0), // Orange très clair
-              Colors.white,
-              Color(0xFFFFF5F0), // Orange très clair
-            ],
+            colors: [Color(0xFFFFF5F0), Colors.white, Color(0xFFFFF5F0)],
             stops: [0.0, 0.5, 1.0],
           ),
         ),
@@ -248,285 +92,221 @@ class HomePage extends StatelessWidget {
               children: [
                 SizedBox(height: 60),
 
-                // Logo avec animation
-                TweenAnimationBuilder(
-                  duration: Duration(milliseconds: 800),
-                  tween: Tween<double>(begin: 0, end: 1),
-                  builder: (context, double value, child) {
-                    return Transform.scale(
-                      scale: value,
-                      child: Container(
-                        width: 140,
-                        height: 140,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color(0xFFE55A2B),
-                              Color(0xFFFF6B35),
-                            ], // Dégradé orange
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(70),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0xFFE55A2B).withOpacity(0.4),
-                              spreadRadius: 8,
-                              blurRadius: 20,
-                              offset: Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(70),
-                          child: Image.asset(
-                            'assets/images/logo-carburapp.png',
-                            width: 100,
-                            height: 100,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Icon(
-                                Icons.local_gas_station,
-                                size: 70,
-                                color: Colors.white,
-                              );
-                            },
-                          ),
-                        ),
+                // Logo
+                Container(
+                  width: 140,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFFE55A2B), Color(0xFFFF6B35)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(70),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0xFFE55A2B).withOpacity(0.4),
+                        spreadRadius: 8,
+                        blurRadius: 20,
+                        offset: Offset(0, 8),
                       ),
-                    );
-                  },
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.local_gas_station,
+                    size: 70,
+                    color: Colors.white,
+                  ),
                 ),
 
                 SizedBox(height: 40),
 
-                // Nom de l'application avec style moderne
+                // Titre
                 Text(
                   'CarburApp',
                   style: TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFE55A2B), // Orange principal
+                    color: Color(0xFFE55A2B),
                     letterSpacing: -0.5,
                   ),
                 ),
 
                 SizedBox(height: 12),
 
-                // Slogan principal
                 Text(
-                  'Votre guide intelligent',
+                  'Powered by Supabase',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFFD2481A), // Orange plus foncé
-                  ),
-                ),
-
-                SizedBox(height: 8),
-
-                // Description détaillée
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    'Trouvez facilement les stations-service les plus proches, suivez vos visites et découvrez de nouvelles stations.',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey.shade600,
-                      height: 1.5,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-
-                SizedBox(height: 50),
-
-                // Fonctionnalités principales avec les nouvelles features
-                Container(
-                  padding: EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
-                        spreadRadius: 2,
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      _buildFeatureItem(
-                        Icons.location_on,
-                        'Géolocalisation précise',
-                        'Localisez instantanément les stations autour de vous',
-                        Color(0xFFE55A2B), // Orange principal
-                      ),
-                      SizedBox(height: 16),
-                      _buildFeatureItem(
-                        Icons.check_circle_outline,
-                        'Suivi des visites',
-                        'Marquez vos passages et suivez vos statistiques',
-                        Color(0xFF4CAF50), // Vert pour les visites
-                      ),
-                      SizedBox(height: 16),
-                      _buildFeatureItem(
-                        Icons.analytics_outlined,
-                        'Statistiques personnelles',
-                        'Découvrez vos habitudes et stations préférées',
-                        Color(0xFF2196F3), // Bleu pour les stats
-                      ),
-                      SizedBox(height: 16),
-                      _buildFeatureItem(
-                        Icons.navigation,
-                        'Navigation intégrée',
-                        'Itinéraires optimisés vers votre destination',
-                        Color(0xFFD2481A), // Orange plus foncé
-                      ),
-                    ],
+                    color: Color(0xFFD2481A),
                   ),
                 ),
 
                 SizedBox(height: 40),
 
-                // Boutons d'action
-                Column(
-                  children: [
-                    // Bouton principal - Commencer
-                    Container(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => MainNavigationPage(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(
-                            0xFFE55A2B,
-                          ), // Orange principal
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
+                // Statut Supabase
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color:
+                        supabaseReady
+                            ? Colors.green.shade50
+                            : Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: supabaseReady ? Colors.green : Colors.red,
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        supabaseReady ? Icons.cloud_done : Icons.cloud_off,
+                        color: supabaseReady ? Colors.green : Colors.red,
+                        size: 24,
+                      ),
+                      SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          supabaseReady
+                              ? 'Supabase connecté'
+                              : 'Connexion Supabase requise',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color:
+                                supabaseReady
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                            fontSize: 16,
                           ),
-                          elevation: 8,
-                          shadowColor: Color(0xFFE55A2B).withOpacity(0.4),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.explore, size: 24),
-                            SizedBox(width: 12),
-                            Text(
-                              'Explorer maintenant',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                          textAlign: TextAlign.center,
                         ),
                       ),
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // Boutons secondaires
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              // Naviguer directement vers la page de diagnostic
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => DiagnosticPage(),
-                                ),
-                              );
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Color(0xFF4CAF50),
-                              side: BorderSide(color: Color(0xFF4CAF50)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                              padding: EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.settings_outlined, size: 20),
-                                SizedBox(width: 8),
-                                Text('Diagnostic'),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        SizedBox(width: 12),
-
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              _showAboutDialog(context);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.grey.shade600,
-                              side: BorderSide(color: Colors.grey.shade400),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                              padding: EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.info_outline, size: 20),
-                                SizedBox(width: 8),
-                                Text('À propos'),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
 
                 SizedBox(height: 30),
 
-                // Footer avec version et statut DB
-                FutureBuilder<bool>(
-                  future: StationVisitService.isDatabaseReady(),
-                  builder: (context, snapshot) {
-                    final dbStatus = snapshot.data == true ? '🟢' : '🔴';
-                    return Column(
+                // Bouton principal
+                Container(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed:
+                        supabaseReady
+                            ? () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => MainNavigationPage(),
+                                ),
+                              );
+                            }
+                            : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          supabaseReady ? Color(0xFFE55A2B) : Colors.grey,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      elevation: supabaseReady ? 8 : 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          'Version 1.0.0 • Made with ❤️',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
+                        Icon(
+                          supabaseReady ? Icons.explore : Icons.warning,
+                          size: 24,
                         ),
-                        SizedBox(height: 4),
+                        SizedBox(width: 12),
                         Text(
-                          '$dbStatus Base de données locale',
+                          supabaseReady
+                              ? 'Explorer maintenant'
+                              : 'Supabase requis',
                           style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade400,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
-                    );
-                  },
+                    ),
+                  ),
+                ),
+
+                SizedBox(height: 20),
+
+                // Bouton diagnostic
+                Container(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => DiagnosticPage(),
+                        ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Color(0xFFE55A2B),
+                      side: BorderSide(color: Color(0xFFE55A2B)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.settings, size: 20),
+                        SizedBox(width: 8),
+                        Text('Diagnostic Supabase'),
+                      ],
+                    ),
+                  ),
+                ),
+
+                SizedBox(height: 40),
+
+                // Information Supabase
+                if (!supabaseReady) ...[
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '☁️ Connexion Supabase requise',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade700,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Cette application utilise Supabase pour sauvegarder vos visites de stations. Vérifiez votre connexion internet.',
+                          style: TextStyle(color: Colors.orange.shade600),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                ],
+
+                // Footer
+                Text(
+                  'Version 1.0.0 • CarburApp • Supabase',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 ),
 
                 SizedBox(height: 20),
@@ -537,138 +317,9 @@ class HomePage extends StatelessWidget {
       ),
     );
   }
-
-  Widget _buildFeatureItem(
-    IconData icon,
-    String title,
-    String description,
-    Color color,
-  ) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: color, size: 24),
-        ),
-        SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade800,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                description,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showAboutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: Row(
-              children: [
-                Icon(Icons.info, color: Color(0xFFE55A2B)), // Orange principal
-                SizedBox(width: 12),
-                Text('À propos de CarburApp'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'CarburApp est votre compagnon de route pour trouver les meilleures stations-service et suivre vos visites.',
-                  style: TextStyle(fontSize: 16, height: 1.5),
-                ),
-                SizedBox(height: 16),
-                _buildInfoRow('Version', '1.0.0'),
-                _buildInfoRow(
-                  'Fonctionnalités',
-                  'Géolocalisation, Suivi visites',
-                ),
-                _buildInfoRow('Stockage', 'Local (SQLite)'),
-                SizedBox(height: 16),
-                Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Color(0xFFFFF5F0), // Orange très clair
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '🚀 Nouvelles fonctionnalités :\n• ✅ Marquage des visites\n• ✅ Statistiques personnelles\n• ✅ Historique des passages\n• ✅ Badges de stations visitées',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFFD2481A), // Orange plus foncé
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFFE55A2B), // Orange principal
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text('Fermer', style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              '$label:',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value, style: TextStyle(color: Colors.grey.shade600)),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-// Page principale avec navigation
+// Navigation principale
 class MainNavigationPage extends StatefulWidget {
   @override
   _MainNavigationPageState createState() => _MainNavigationPageState();
@@ -678,7 +329,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = [
-    HomeTab(), // Nouvel onglet d'accueil
+    HomeTab(),
     GasStationMapPage(),
     StationsListPage(),
     ProfilePage(),
@@ -688,122 +339,27 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: _pages),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.3),
-              spreadRadius: 1,
-              blurRadius: 5,
-              offset: Offset(0, -2),
-            ),
-          ],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: Color(0xFFE55A2B), // Orange principal
-          unselectedItemColor: Colors.grey.shade500,
-          selectedLabelStyle: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Color(0xFFE55A2B),
+        unselectedItemColor: Colors.grey.shade500,
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Carte'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.local_gas_station),
+            label: 'Stations',
           ),
-          unselectedLabelStyle: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.normal,
-          ),
-          items: [
-            BottomNavigationBarItem(
-              icon: Container(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.home_outlined, size: 24),
-              ),
-              activeIcon: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Color(0xFFFFF5F0), // Orange très clair
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.home,
-                  size: 24,
-                  color: Color(0xFFE55A2B),
-                ), // Orange principal
-              ),
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Container(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.map_outlined, size: 24),
-              ),
-              activeIcon: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Color(0xFFFFF5F0), // Orange très clair
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.map,
-                  size: 24,
-                  color: Color(0xFFE55A2B),
-                ), // Orange principal
-              ),
-              label: 'Carte',
-            ),
-            BottomNavigationBarItem(
-              icon: Container(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.local_gas_station_outlined, size: 24),
-              ),
-              activeIcon: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Color(0xFFFFF5F0), // Orange très clair
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.local_gas_station,
-                  size: 24,
-                  color: Color(0xFFE55A2B),
-                ), // Orange principal
-              ),
-              label: 'Stations',
-            ),
-            BottomNavigationBarItem(
-              icon: Container(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.person_outline, size: 24),
-              ),
-              activeIcon: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Color(0xFFFFF5F0), // Orange très clair
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.person,
-                  size: 24,
-                  color: Color(0xFFE55A2B),
-                ), // Orange principal
-              ),
-              label: 'Profil',
-            ),
-          ],
-        ),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
+        ],
       ),
     );
   }
 }
 
-// Nouvel onglet Home dans la navigation avec statistiques
+// Onglet Home avec Supabase
 class HomeTab extends StatefulWidget {
   @override
   _HomeTabState createState() => _HomeTabState();
@@ -832,6 +388,12 @@ class _HomeTabState extends State<HomeTab> {
       print('Erreur chargement stats: $e');
       if (mounted) {
         setState(() {
+          _userStats = {
+            'total_visits': 0,
+            'unique_stations': 0,
+            'top_brand': null,
+            'data_source': 'error',
+          };
           _isLoadingStats = false;
         });
       }
@@ -848,7 +410,7 @@ class _HomeTabState extends State<HomeTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header avec salutation et statistiques
+              // Header avec statistiques Supabase
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(20),
@@ -863,17 +425,23 @@ class _HomeTabState extends State<HomeTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Bonjour !',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          'Bonjour !',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Spacer(),
+                        Icon(Icons.cloud_done, color: Colors.white70, size: 20),
+                      ],
                     ),
                     SizedBox(height: 5),
                     Text(
-                      'Trouvez et suivez vos stations préférées',
+                      'Données synchronisées avec Supabase',
                       style: TextStyle(color: Colors.white70, fontSize: 16),
                     ),
                     if (!_isLoadingStats && _userStats != null) ...[
@@ -899,6 +467,45 @@ class _HomeTabState extends State<HomeTab> {
                                 fontSize: 14,
                               ),
                             ),
+                            if (_userStats!['data_source'] == 'error')
+                              Text(
+                                ' (hors ligne)',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ] else if (_isLoadingStats) ...[
+                      SizedBox(height: 15),
+                      Container(
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Chargement des statistiques...',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -910,13 +517,23 @@ class _HomeTabState extends State<HomeTab> {
               SizedBox(height: 25),
 
               // Actions rapides
-              Text(
-                'Actions rapides',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'Actions rapides',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.refresh, color: Colors.grey.shade600),
+                    onPressed: _loadUserStats,
+                    tooltip: 'Actualiser les données',
+                  ),
+                ],
               ),
 
               SizedBox(height: 15),
@@ -931,96 +548,54 @@ class _HomeTabState extends State<HomeTab> {
                 childAspectRatio: 1.2,
                 children: [
                   _buildActionCard(
-                    context,
                     'Voir la carte',
                     Icons.map,
                     Color(0xFFE55A2B),
-                    () => _navigateToTab(context, 1),
+                    () => _navigateToTab(1),
                   ),
                   _buildActionCard(
-                    context,
-                    'Liste des stations',
+                    'Liste stations',
                     Icons.list,
                     Color(0xFFFF6B35),
-                    () => _navigateToTab(context, 2),
+                    () => _navigateToTab(2),
                   ),
                   _buildActionCard(
-                    context,
                     'Mes statistiques',
                     Icons.analytics,
                     Color(0xFF4CAF50),
-                    () => _showStatsDialog(),
+                    _showDetailedStats,
                   ),
                   _buildActionCard(
-                    context,
                     'Mon profil',
                     Icons.person,
                     Color(0xFFD2481A),
-                    () => _navigateToTab(context, 3),
+                    () => _navigateToTab(3),
                   ),
                 ],
               ),
 
               SizedBox(height: 25),
 
-              // Section informations mise à jour
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(15),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
-                      spreadRadius: 1,
-                      blurRadius: 5,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info_outline, color: Color(0xFFE55A2B)),
-                        SizedBox(width: 10),
-                        Text(
-                          'À propos de CarburApp',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    Text(
-                      'CarburApp vous aide à localiser facilement les stations-service près de vous. Marquez vos visites, consultez vos statistiques et découvrez de nouvelles stations.',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        height: 1.5,
-                      ),
-                    ),
-                    SizedBox(height: 15),
-                    Row(
-                      children: [
-                        Icon(Icons.check_circle, color: Colors.green, size: 16),
-                        SizedBox(width: 8),
-                        Text(
-                          'Suivi des visites activé',
-                          style: TextStyle(
-                            color: Colors.green,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+              // Visites récentes
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: StationVisitService.getRecentVisits(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return _buildLoadingSection('Visites récentes');
+                  }
+
+                  if (snapshot.hasError ||
+                      !snapshot.hasData ||
+                      snapshot.data!.isEmpty) {
+                    return _buildEmptySection(
+                      'Visites récentes',
+                      'Aucune visite cette semaine',
+                      Icons.history,
+                    );
+                  }
+
+                  return _buildRecentVisitsSection(snapshot.data!);
+                },
               ),
             ],
           ),
@@ -1030,7 +605,6 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _buildActionCard(
-    BuildContext context,
     String title,
     IconData icon,
     Color color,
@@ -1078,7 +652,192 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  void _navigateToTab(BuildContext context, int tabIndex) {
+  Widget _buildLoadingSection(String title) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          SizedBox(height: 15),
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE55A2B)),
+          ),
+          SizedBox(height: 10),
+          Text(
+            'Chargement depuis Supabase...',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptySection(String title, String message, IconData icon) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          SizedBox(height: 15),
+          Icon(icon, size: 40, color: Colors.grey.shade400),
+          SizedBox(height: 10),
+          Text(
+            message,
+            style: TextStyle(color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentVisitsSection(List<Map<String, dynamic>> visits) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Visites récentes',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              Spacer(),
+              Text(
+                '${visits.length} cette semaine',
+                style: TextStyle(
+                  color: Color(0xFFE55A2B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 15),
+          ...visits.take(3).map((visit) => _buildVisitItem(visit)).toList(),
+          if (visits.length > 3) ...[
+            SizedBox(height: 10),
+            Center(
+              child: TextButton(
+                onPressed:
+                    () => _navigateToTab(3), // Aller au profil pour voir tout
+                child: Text('Voir tout l\'historique'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisitItem(Map<String, dynamic> visit) {
+    final date = DateTime.parse(visit['visit_date'] as String);
+    final formattedDate =
+        '${date.day}/${date.month} à ${date.hour}h${date.minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Color(0xFFE55A2B).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              Icons.local_gas_station,
+              color: Color(0xFFE55A2B),
+              size: 20,
+            ),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  visit['station_name'] as String,
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${visit['station_brand']} • $formattedDate',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToTab(int tabIndex) {
     final mainNavState =
         context.findAncestorStateOfType<_MainNavigationPageState>();
     if (mainNavState != null) {
@@ -1088,78 +847,92 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
-  void _showStatsDialog() async {
+  void _showDetailedStats() async {
     try {
       final stats = await StationVisitService.getUserStats();
+      final topStations = await StationVisitService.getTopVisitedStations(1, 5);
+
       showDialog(
         context: context,
         builder:
             (context) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
               title: Row(
                 children: [
                   Icon(Icons.analytics, color: Color(0xFFE55A2B)),
                   SizedBox(width: 12),
-                  Text('Mes statistiques'),
+                  Text('Statistiques détaillées'),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildStatRow(
-                    '🎯 Total de visites:',
-                    '${stats['total_visits']}',
-                  ),
-                  _buildStatRow(
-                    '🏢 Stations uniques:',
-                    '${stats['unique_stations']}',
-                  ),
-                  if (stats['top_brand'] != null)
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     _buildStatRow(
-                      '⭐ Marque préférée:',
-                      '${stats['top_brand']}',
+                      '🎯 Total de visites:',
+                      '${stats['total_visits']}',
                     ),
-                  SizedBox(height: 16),
-                  Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Color(0xFFFFF5F0),
-                      borderRadius: BorderRadius.circular(8),
+                    _buildStatRow(
+                      '🏢 Stations uniques:',
+                      '${stats['unique_stations']}',
                     ),
-                    child: Text(
-                      'Continuez à explorer pour découvrir de nouvelles stations !',
-                      style: TextStyle(
-                        color: Color(0xFFE55A2B),
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
+                    if (stats['top_brand'] != null)
+                      _buildStatRow(
+                        '⭐ Marque préférée:',
+                        '${stats['top_brand']}',
                       ),
-                      textAlign: TextAlign.center,
+                    if (stats['last_visit'] != null) ...[
+                      SizedBox(height: 10),
+                      Text(
+                        'Dernière visite:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        DateTime.parse(
+                          stats['last_visit'],
+                        ).toString().substring(0, 16),
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                    if (topStations.isNotEmpty) ...[
+                      SizedBox(height: 15),
+                      Text(
+                        'Stations favorites:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 5),
+                      ...topStations.map(
+                        (station) => Padding(
+                          padding: EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            '• ${station['station_name']} (${station['visit_count']} visites)',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(Icons.cloud_done, size: 16, color: Colors.green),
+                        SizedBox(width: 4),
+                        Text(
+                          'Données Supabase',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: Text('Fermer'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _navigateToTab(context, 1); // Aller à la carte
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFFE55A2B),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    'Voir la carte',
-                    style: TextStyle(color: Colors.white),
-                  ),
                 ),
               ],
             ),
@@ -1194,7 +967,7 @@ class _HomeTabState extends State<HomeTab> {
   }
 }
 
-// Ajoutez l'import pour la page de diagnostic
+// Page de diagnostic Supabase
 class DiagnosticPage extends StatefulWidget {
   @override
   _DiagnosticPageState createState() => _DiagnosticPageState();
@@ -1203,6 +976,7 @@ class DiagnosticPage extends StatefulWidget {
 class _DiagnosticPageState extends State<DiagnosticPage> {
   List<String> _diagnosticResults = [];
   bool _isRunning = false;
+  Map<String, dynamic>? _diagnosticInfo;
 
   @override
   void initState() {
@@ -1214,74 +988,26 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
     setState(() {
       _isRunning = true;
       _diagnosticResults.clear();
+      _diagnosticInfo = null;
     });
 
-    _addResult('🔍 Démarrage des diagnostics...');
-
-    // Test 1: Vérifier la disponibilité de SQLite
     try {
-      final dbPath = await getDatabasesPath();
-      _addResult('✅ Chemin de base de données: ${dbPath.split('/').last}');
-    } catch (e) {
-      _addResult('❌ Erreur chemin DB: $e');
-    }
+      // Récupérer les infos de diagnostic
+      final info = await StationVisitService.getDiagnosticInfo();
+      final results = await StationVisitService.runFullTest();
 
-    // Test 2: Tester l'initialisation de la base de données
-    try {
-      final isReady = await StationVisitService.isDatabaseReady();
-      _addResult(
-        isReady ? '✅ Base de données prête' : '❌ Base de données non prête',
-      );
+      setState(() {
+        _diagnosticResults = results;
+        _diagnosticInfo = info;
+      });
     } catch (e) {
-      _addResult('❌ Erreur initialisation DB: $e');
-    }
-
-    // Test 3: Tester l'écriture
-    try {
-      await StationVisitService.markStationVisit(
-        stationId: 'test_station_${DateTime.now().millisecondsSinceEpoch}',
-        stationName: 'Station Test Diagnostic',
-        stationBrand: 'Test Brand',
-        latitude: 48.8566,
-        longitude: 2.3522,
-        notes: 'Test de diagnostic automatique',
-      );
-      _addResult('✅ Écriture en base réussie');
-    } catch (e) {
-      _addResult('❌ Erreur écriture: $e');
-    }
-
-    // Test 4: Tester la lecture
-    try {
-      final stats = await StationVisitService.getUserStats();
-      _addResult('✅ Lecture stats: ${stats['total_visits']} visites');
-    } catch (e) {
-      _addResult('❌ Erreur lecture: $e');
-    }
-
-    // Test 5: Tester l'historique
-    try {
-      final history = await StationVisitService.getUserVisitHistory();
-      _addResult('✅ Historique: ${history.length} entrées');
-
-      if (history.isNotEmpty) {
-        final lastVisit = history.first;
-        _addResult('📅 Dernière visite: ${lastVisit['station_name']}');
-      }
-    } catch (e) {
-      _addResult('❌ Erreur historique: $e');
+      setState(() {
+        _diagnosticResults = ['🔍 Début des tests...', '❌ Erreur critique: $e'];
+      });
     }
 
     setState(() {
       _isRunning = false;
-    });
-
-    _addResult('🏁 Diagnostics terminés - Tout semble fonctionnel !');
-  }
-
-  void _addResult(String result) {
-    setState(() {
-      _diagnosticResults.add(result);
     });
   }
 
@@ -1289,7 +1015,7 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Diagnostic de l\'application'),
+        title: Text('Diagnostic Supabase'),
         backgroundColor: Color(0xFFE55A2B),
         foregroundColor: Colors.white,
         actions: [
@@ -1299,11 +1025,54 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
           ),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Informations de diagnostic
+            if (_diagnosticInfo != null) ...[
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '📊 Informations système',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    _buildInfoRow('Plateforme', _diagnosticInfo!['platform']),
+                    _buildInfoRow('Stockage', _diagnosticInfo!['storage_type']),
+                    _buildInfoRow(
+                      'Supabase URL',
+                      _diagnosticInfo!['supabase_url'],
+                    ),
+                    _buildInfoRow('État auth', _diagnosticInfo!['auth_status']),
+                    _buildInfoRow(
+                      'Initialisé',
+                      _diagnosticInfo!['is_initialized'].toString(),
+                    ),
+                    _buildInfoRow(
+                      'Prêt',
+                      _diagnosticInfo!['supabase_ready'].toString(),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 20),
+            ],
+
             Text(
               'Tests de fonctionnement',
               style: TextStyle(
@@ -1329,76 +1098,48 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
                 ),
               ),
 
-            Expanded(
-              child: ListView.builder(
-                itemCount: _diagnosticResults.length,
-                itemBuilder: (context, index) {
-                  final result = _diagnosticResults[index];
-                  final isError = result.contains('❌');
-                  final isSuccess = result.contains('✅');
+            // Résultats des tests
+            ...(_diagnosticResults.map((result) {
+              final isError = result.contains('❌');
+              final isSuccess = result.contains('✅');
+              final isWarning = result.contains('⚠️');
 
-                  return Card(
-                    margin: EdgeInsets.symmetric(vertical: 4),
-                    color:
-                        isError
-                            ? Colors.red.shade50
-                            : isSuccess
-                            ? Colors.green.shade50
-                            : null,
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        result,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 14,
-                          color:
-                              isError
-                                  ? Colors.red.shade700
-                                  : isSuccess
-                                  ? Colors.green.shade700
-                                  : null,
-                        ),
-                      ),
+              return Card(
+                margin: EdgeInsets.symmetric(vertical: 4),
+                color:
+                    isError
+                        ? Colors.red.shade50
+                        : isSuccess
+                        ? Colors.green.shade50
+                        : isWarning
+                        ? Colors.orange.shade50
+                        : null,
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    result,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                      color:
+                          isError
+                              ? Colors.red.shade700
+                              : isSuccess
+                              ? Colors.green.shade700
+                              : isWarning
+                              ? Colors.orange.shade700
+                              : null,
                     ),
-                  );
-                },
-              ),
-            ),
-
-            SizedBox(height: 16),
-
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed:
-                        _isRunning
-                            ? null
-                            : () async {
-                              try {
-                                await StationVisitService.resetAllData();
-                                _addResult('🗑️ Données réinitialisées');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Toutes les données ont été supprimées',
-                                    ),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              } catch (e) {
-                                _addResult('❌ Erreur reset: $e');
-                              }
-                            },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: Text('Réinitialiser'),
                   ),
                 ),
-                SizedBox(width: 16),
+              );
+            })),
+
+            SizedBox(height: 20),
+
+            // Boutons d'action
+            Row(
+              children: [
                 Expanded(
                   child: ElevatedButton(
                     onPressed: _isRunning ? null : _runDiagnostics,
@@ -1406,7 +1147,18 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
                       backgroundColor: Color(0xFFE55A2B),
                       foregroundColor: Colors.white,
                     ),
-                    child: Text('Relancer les tests'),
+                    child: Text('🔍 Tester'),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isRunning ? null : _resetData,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text('🗑️ Reset'),
                   ),
                 ),
               ],
@@ -1415,5 +1167,73 @@ class _DiagnosticPageState extends State<DiagnosticPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _resetData() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('⚠️ Confirmation'),
+            content: Text(
+              'Êtes-vous sûr de vouloir supprimer toutes vos données Supabase ?\n\nCette action est irréversible.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: Text('Supprimer', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+    );
+
+    if (confirm == true) {
+      try {
+        await StationVisitService.resetAllData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Données supprimées avec succès'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _runDiagnostics(); // Relancer les tests
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Erreur lors de la suppression: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
