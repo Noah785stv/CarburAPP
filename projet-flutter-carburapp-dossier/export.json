@@ -1,0 +1,42 @@
+[
+  {
+    "routine_name": "add_user_vehicle",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "create_missing_profiles",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "ensure_single_primary_vehicle",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "get_top_visited_stations",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "get_user_settings",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "get_user_vehicles",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "handle_new_user",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "test_vehicle_permissions",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "update_updated_at_column",
+    "routine_type": "FUNCTION"
+  },
+  {
+    "routine_name": "update_user_vehicle",
+    "routine_type": "FUNCTION"
+  }
+]
